@@ -3,4 +3,12 @@
 config.json
 secrets/
 *.key
-*.pem 
+*.pem
+.venv/
+__pycache__/
+*.log
+*.pyc
+.DS_Store
+bot.log
+.idea/
+.vscode/ 

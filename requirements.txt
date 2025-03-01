@@ -1,0 +1,3 @@
+aiogram>=3.0
+python-dotenv>=0.19
+pydantic-settings>=2.0 

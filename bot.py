@@ -1,83 +1,100 @@
 import os
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from telegram import ReplyKeyboardMarkup
-from telegram.constants import ParseMode
+import logging
+from typing import List, Tuple
 
-# Загружаем переменные окружения из .env
-load_dotenv()
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from pydantic_settings import BaseSettings
 
-# Используем переменные
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD')
-API_KEY = os.getenv('API_KEY')
+# Конфигурация через Pydantic
+class Settings(BaseSettings):
+    TELEGRAM_TOKEN: str
+    DATABASE_PASSWORD: str = ""
+    API_KEY: str = ""
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
-print(f"Токен: {TELEGRAM_TOKEN}")
+# Инициализация конфига
+config = Settings()
 
-# Команды для меню
-COMMANDS = [
+# Настройка бота и диспетчера
+bot = Bot(token=config.TELEGRAM_TOKEN, parse_mode="HTML")
+dp = Dispatcher(storage=MemoryStorage())
+
+# Логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Список команд для меню
+COMMANDS: List[Tuple[str, str]] = [
     ("start", "Начать работу с ботом"),
     ("help", "Показать меню команд"),
     ("info", "Информация о боте"),
     ("me", "Информация о пользователе")
 ]
 
-# Обработчик команды /start
-async def start(update: Update, context):
-    # Создаем клавиатуру с командами
-    keyboard = [['/start', '/help'], ['/info', '/me']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
+# Генератор клавиатуры
+def get_main_keyboard() -> types.ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    for cmd, _ in COMMANDS:
+        builder.add(types.KeyboardButton(text=f"/{cmd}"))
+    builder.adjust(2)
+    return builder.as_markup(resize_keyboard=True)
+
+# Обработчики команд
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer(
         'Привет! Я простой бот. Вот доступные команды:',
-        reply_markup=reply_markup
+        reply_markup=get_main_keyboard()
     )
 
-# Обработчик команды /help
-async def help_command(update: Update, context):
-    help_text = "<b>Доступные команды:</b>\n\n"
-    help_text += "\n".join(f"/{cmd} - {desc}" for cmd, desc in COMMANDS)
-    await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = "<b>Доступные команды:</b>\n\n" + "\n".join(
+        f"/{cmd} - {desc}" for cmd, desc in COMMANDS
+    )
+    await message.answer(help_text)
 
-# Обработчик команды /info
-async def info(update: Update, context):
+@dp.message(Command("info"))
+async def cmd_info(message: types.Message):
     info_text = """
 🚀 <b>Я бот для Yandex Tracker</b>
 ✅ Готов к работе в любое время!
 """
-    await update.message.reply_text(info_text, parse_mode=ParseMode.HTML)
+    await message.answer(info_text)
 
-# Обработчик команды /me
-async def me(update: Update, context):
-    user = update.message.from_user
-    user_info = f"""
-<b>Информация о вас:</b>
-🆔 ID: <code>{user.id}</code>
-👤 Имя: {user.first_name}
-👥 Фамилия: {user.last_name or 'не указана'}
-📛 Username: @{user.username or 'не указан'}
-🌐 Язык: {user.language_code or 'не указан'}
-"""
-    await update.message.reply_text(user_info, parse_mode=ParseMode.HTML)
+@dp.message(Command("me"))
+async def cmd_me(message: types.Message):
+    user = message.from_user
+    user_info = (
+        "<b>Информация о вас:</b>\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Имя: {user.first_name}\n"
+        f"👥 Фамилия: {user.last_name or 'не указана'}\n"
+        f"📛 Username: @{user.username or 'не указан'}\n"
+        f"🌐 Язык: {user.language_code or 'не указан'}"
+    )
+    await message.answer(user_info)
 
-# Установка меню команд
-async def post_init(application):
-    await application.bot.set_my_commands(COMMANDS)
+# Обработка ошибок
+@dp.errors()
+async def errors_handler(update: types.Update, exception: Exception):
+    logger.error(f"Ошибка при обработке {update}: {exception}")
+    return True
 
-# Основная функция
-def main():
-    # Вставьте сюда ваш токен
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).build()
-    
-    # Регистрируем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("info", info))
-    application.add_handler(CommandHandler("me", me))
-    
-    # Запускаем бота
-    application.run_polling()
+# Запуск бота
+async def main():
+    await bot.set_my_commands([types.BotCommand(command=cmd, description=desc) for cmd, desc in COMMANDS])
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    main() 
+    import asyncio
+    asyncio.run(main()) 
